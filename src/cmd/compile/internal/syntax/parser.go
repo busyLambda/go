@@ -320,7 +320,7 @@ func (p *parser) pos() Pos               { return p.posAt(p.line, p.col) }
 func (p *parser) error(msg string)       { p.errorAt(p.pos(), msg) }
 func (p *parser) syntaxError(msg string) { p.syntaxErrorAt(p.pos(), msg) }
 
-// The stopset contains keywords that start a statement.
+// The stopset contains tokens that start a statement.
 // They are good synchronization points in case of syntax
 // errors and (usually) shouldn't be skipped over.
 const stopset uint64 = 1<<_Break |
@@ -332,6 +332,7 @@ const stopset uint64 = 1<<_Break |
 	1<<_Go |
 	1<<_Goto |
 	1<<_If |
+	1<<_Macrospace |
 	1<<_Return |
 	1<<_Select |
 	1<<_Switch |
@@ -459,6 +460,31 @@ func (p *parser) fileOrNil() *File {
 				f.DeclList = append(f.DeclList, d)
 			}
 
+		case _Macrospace:
+			pos := p.pos()
+			p.next()
+			if p.tok != _Name {
+				p.syntaxError("expected macro name after '#'")
+				p.advance(_Semi, _Rbrace)
+				continue
+			}
+			if p.lit == "defmacro" {
+				p.next()
+				if d := p.funcDeclOrNil(); d != nil {
+					if d.Body == nil {
+						p.errorAt(pos, "#defmacro must have a body")
+					}
+					if msg, at := checkMacroSignature(d); msg != "" {
+						p.errorAt(at, msg)
+					}
+					d.Macro = true
+					d.SetPos(pos)
+					f.DeclList = append(f.DeclList, d)
+				}
+			} else {
+				f.DeclList = append(f.DeclList, p.macroCall(pos))
+			}
+
 		default:
 			if p.tok == _Lbrace && len(f.DeclList) > 0 && isEmptyFuncDecl(f.DeclList[len(f.DeclList)-1]) {
 				// opening { of function declaration on next line
@@ -466,7 +492,7 @@ func (p *parser) fileOrNil() *File {
 			} else {
 				p.syntaxError("non-declaration statement outside function body")
 			}
-			p.advance(_Import, _Const, _Type, _Var, _Func)
+			p.advance(_Import, _Const, _Type, _Var, _Func, _Macrospace)
 			continue
 		}
 
@@ -476,7 +502,7 @@ func (p *parser) fileOrNil() *File {
 
 		if p.tok != _EOF && !p.got(_Semi) {
 			p.syntaxError("after top level declaration")
-			p.advance(_Import, _Const, _Type, _Var, _Func)
+			p.advance(_Import, _Const, _Type, _Var, _Func, _Macrospace)
 		}
 	}
 	// p.tok == _EOF
@@ -856,6 +882,110 @@ func (p *parser) funcBody() *BlockStmt {
 	}
 
 	return body
+}
+
+// macroCall parses #name(...) after the '#' has been consumed.
+func (p *parser) macroCall(pos Pos) *MacroCall {
+	c := new(MacroCall)
+	c.pos = pos
+	if p.tok != _Name {
+		p.syntaxError("expected macro name after '#'")
+		p.advance(_Semi, _Rbrace)
+		return c
+	}
+	c.Name = p.name()
+	if !p.got(_Lparen) {
+		p.syntaxError("expected '(' after macro name")
+		p.advance(_Semi, _Rbrace)
+		return c
+	}
+	c.Args = p.macroArgs()
+	return c
+}
+
+// macroArgs collects the raw tokens of a macro call's arguments, excluding the
+// outer parentheses. p.tok is the first token after '(' on entry.
+func (p *parser) macroArgs() []MacroToken {
+	var args []MacroToken
+	depth := 0
+	for {
+		if p.tok == _EOF {
+			p.syntaxError("unterminated macro call")
+			return args
+		}
+		if p.tok == _Rparen && depth == 0 {
+			p.next()
+			return args
+		}
+		switch p.tok {
+		case _Lparen, _Lbrack, _Lbrace:
+			depth++
+		case _Rparen, _Rbrack, _Rbrace:
+			if depth > 0 {
+				depth--
+			}
+		}
+		args = append(args, MacroToken{Pos: p.pos(), Tok: p.tok, Lit: p.lit})
+		p.next()
+	}
+}
+
+// checkMacroSignature enforces the syntactic shape of a macro declaration:
+// exactly one []Token parameter and exactly one []Node result.
+func checkMacroSignature(fn *FuncDecl) (msg string, at Pos) {
+	if fn.Recv != nil {
+		return "macro cannot have a receiver", fn.Pos()
+	}
+	if fn.TParamList != nil {
+		return "macro cannot have type parameters", fn.Pos()
+	}
+	if fn.Type == nil {
+		return "macro must have a signature", fn.Pos()
+	}
+
+	ps := fn.Type.ParamList
+	if len(ps) != 1 {
+		return "macro must take exactly one token stream parameter", fn.Type.Pos()
+	}
+	st, ok := unparen(ps[0].Type).(*SliceType)
+	if !ok || !macroTypeName(st.Elem, "Token") {
+		return "macro parameter must be []Token", ps[0].Pos()
+	}
+
+	rs := fn.Type.ResultList
+	if len(rs) != 1 {
+		return "macro must return exactly one node list", fn.Type.Pos()
+	}
+	nt, ok := unparen(rs[0].Type).(*SliceType)
+	if !ok || !macroTypeName(nt.Elem, "Node") {
+		return "macro result must be []Node", rs[0].Pos()
+	}
+
+	return "", Pos{}
+}
+
+func unparen(x Expr) Expr {
+	for {
+		p, ok := x.(*ParenExpr)
+		if !ok {
+			return x
+		}
+		x = p.X
+	}
+}
+
+func macroTypeName(x Expr, name string) bool {
+	switch x = unparen(x); x := x.(type) {
+	case *Name:
+		return x.Value == name
+	case *SelectorExpr:
+		if x.Sel.Value != name {
+			return false
+		}
+		_, ok := x.X.(*Name)
+		return ok
+	}
+	return false
 }
 
 // ----------------------------------------------------------------------------
@@ -2627,6 +2757,16 @@ func (p *parser) stmtOrNil() Stmt {
 	p.clearPragma()
 
 	switch p.tok {
+	case _Macrospace:
+		pos := p.pos()
+		p.next()
+		if p.tok == _Name && p.lit == "defmacro" {
+			p.syntaxError("#defmacro is only allowed at package level")
+			p.advance(_Semi, _Rbrace)
+			return nil
+		}
+		return p.macroCall(pos)
+
 	case _Lbrace:
 		return p.blockStmt("")
 

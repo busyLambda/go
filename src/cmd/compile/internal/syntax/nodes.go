@@ -115,9 +115,28 @@ type (
 		TParamList []*Field // nil means no type parameters
 		Type       *FuncType
 		Body       *BlockStmt // nil means no body (forward declaration)
+		Macro      bool       // declared with #defmacro
 		decl
 	}
 )
+
+// MacroToken is one raw token captured from a macro call's argument list.
+type MacroToken struct {
+	Pos Pos
+	Tok Token
+	Lit string
+}
+
+// MacroCall is a #name(...) macro invocation. It is valid in declaration and
+// statement position; it is removed by macro expansion before type checking.
+type MacroCall struct {
+	Name *Name
+	Args []MacroToken
+	node
+}
+
+func (*MacroCall) aDecl() {}
+func (*MacroCall) aStmt() {}
 
 func (d *FuncDecl) String() string {
 	return fmt.Sprintf("FuncDecl{Name:%v}", d.Name)

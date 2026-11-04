@@ -109,6 +109,11 @@ func (w walker) node(n Node) {
 			w.node(n.Body)
 		}
 
+	case *MacroCall:
+		if n.Name != nil {
+			w.node(n.Name)
+		}
+
 	// expressions
 	case *BadExpr: // nothing to do
 	case *Name: // nothing to do

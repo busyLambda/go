@@ -15,8 +15,10 @@ const (
 	_EOF       // EOF
 
 	// names and literals
-	_Name    // name
-	_Literal // literal
+	_Name       // name
+	_Literal    // literal
+	// _Macrospace is the '#' that introduces a macro definition or call.
+	_Macrospace // #
 
 	// operators and operations
 	// _Operator is excluding '*' (_Star)

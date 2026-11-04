@@ -216,6 +216,9 @@ redo:
 		}
 		s.tok = _Star
 
+	case '#':
+		s.tok = _Macrospace
+
 	case '/':
 		if s.ch == '/' {
 			s.nextch()
