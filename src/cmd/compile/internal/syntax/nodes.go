@@ -66,6 +66,7 @@ type (
 		Pragma       Pragma
 		LocalPkgName *Name     // including "."; nil means no rename present
 		Path         *BasicLit // Path.Bad || Path.Kind == StringLit; nil means no path
+		MacroUsed    bool      // a macro call resolved through this import
 		decl
 	}
 
@@ -130,7 +131,7 @@ type MacroToken struct {
 // MacroCall is a #name(...) macro invocation. It is valid in declaration and
 // statement position; it is removed by macro expansion before type checking.
 type MacroCall struct {
-	Name *Name
+	Name Expr // *Name or *SelectorExpr
 	Args []MacroToken
 	node
 }

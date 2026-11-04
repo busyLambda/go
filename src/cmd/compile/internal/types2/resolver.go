@@ -298,6 +298,12 @@ func (check *Checker) collectObjects() {
 					check.usedPkgNames[pkgName] = true
 				}
 
+				if s.MacroUsed {
+					// A macro call resolved through this import; expansion
+					// removed the call, so type checking cannot see the use.
+					check.usedPkgNames[pkgName] = true
+				}
+
 				// add import to file scope
 				check.imports = append(check.imports, pkgName)
 				if name == "." {

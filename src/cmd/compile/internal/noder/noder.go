@@ -73,7 +73,64 @@ func LoadPackage(filenames []string) {
 	}
 	base.Timer.AddEvent(int64(lines), "lines")
 
+	checkMacroPackage(m, noders)
+
 	unified(m, noders)
+}
+
+// macroPkgInfo is the result of classifying the files of one package.
+type macroPkgInfo struct {
+	marked   []*noder
+	plain    []*noder
+	badDecls []*syntax.FuncDecl
+}
+
+// classifyMacroPackage splits the package's files into those marked
+// //go:macro and those not, and collects macro declarations in unmarked
+// packages. It does not report errors.
+func classifyMacroPackage(noders []*noder) macroPkgInfo {
+	var info macroPkgInfo
+	for _, p := range noders {
+		if isCgoGeneratedFile(p.file.Pos()) {
+			continue // generated files cannot carry the pragma
+		}
+		if pr, _ := p.file.Pragma.(*pragmas); pr != nil && pr.Macro {
+			info.marked = append(info.marked, p)
+		} else {
+			info.plain = append(info.plain, p)
+		}
+	}
+	if len(info.marked) == 0 {
+		for _, p := range noders {
+			for _, d := range p.file.DeclList {
+				if fn, ok := d.(*syntax.FuncDecl); ok && fn.Macro {
+					info.badDecls = append(info.badDecls, fn)
+				}
+			}
+		}
+	}
+	return info
+}
+
+// checkMacroPackage enforces the //go:macro package rules. It reports errors
+// through base.ErrorfAt and returns whether the package is a macro package.
+func checkMacroPackage(m posMap, noders []*noder) bool {
+	info := classifyMacroPackage(noders)
+
+	if len(info.marked) > 0 && len(info.plain) > 0 {
+		pr := info.marked[0].file.Pragma.(*pragmas)
+		base.ErrorfAt(m.makeXPos(pr.MacroPos), 0,
+			"inconsistent //go:macro: %s is marked as a macro package, %s is not",
+			info.marked[0].file.Pos().RelFilename(), info.plain[0].file.Pos().RelFilename())
+		return true
+	}
+
+	for _, fn := range info.badDecls {
+		base.ErrorfAt(m.makeXPos(fn.Pos()), 0,
+			"#defmacro is only allowed in a package marked //go:macro")
+	}
+
+	return len(info.marked) > 0
 }
 
 // trimFilename returns the "trimmed" filename of b, which is the
@@ -87,7 +144,7 @@ func trimFilename(b *syntax.PosBase) string {
 	filename := b.Filename()
 	if !b.Trimmed() {
 		dir := ""
-		if b.IsFileBase() {
+		if b.IsFileBase() && base.Ctxt != nil {
 			dir = base.Ctxt.Pathname
 		}
 		filename = objabi.AbsFile(dir, filename, base.Flag.TrimPath)
@@ -173,6 +230,8 @@ type pragmas struct {
 	Embeds     []pragmaEmbed
 	WasmImport *WasmImport
 	WasmExport *WasmExport
+	Macro      bool       // //go:macro
+	MacroPos   syntax.Pos // position of //go:macro
 }
 
 func (p *pragmas) Nointerface() bool {
@@ -300,6 +359,10 @@ func (p *noder) pragma(pos syntax.Pos, blankLine bool, text string, old syntax.P
 			panic("missing pkgpath")
 		}
 		p.linknames = append(p.linknames, linkname{pos, f[0] == "go:linknamestd", f[1], target})
+
+	case text == "go:macro":
+		pragma.Macro = true
+		pragma.MacroPos = pos
 
 	case text == "go:embed", strings.HasPrefix(text, "go:embed "):
 		args, err := parseGoEmbed(text[len("go:embed"):])

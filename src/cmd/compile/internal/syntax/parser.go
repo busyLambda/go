@@ -893,7 +893,7 @@ func (p *parser) macroCall(pos Pos) *MacroCall {
 		p.advance(_Semi, _Rbrace)
 		return c
 	}
-	c.Name = p.name()
+	c.Name = p.macroName()
 	if !p.got(_Lparen) {
 		p.syntaxError("expected '(' after macro name")
 		p.advance(_Semi, _Rbrace)
@@ -901,6 +901,20 @@ func (p *parser) macroCall(pos Pos) *MacroCall {
 	}
 	c.Args = p.macroArgs()
 	return c
+}
+
+// macroName parses name or pkg.name after the '#' and its first name.
+func (p *parser) macroName() Expr {
+	x := p.name()
+	if p.tok == _Dot {
+		s := new(SelectorExpr)
+		s.pos = p.pos()
+		p.next()
+		s.X = x
+		s.Sel = p.name()
+		return s
+	}
+	return x
 }
 
 // macroArgs collects the raw tokens of a macro call's arguments, excluding the

@@ -92,8 +92,12 @@ func TestMacroCallDecl(t *testing.T) {
 	if !ok {
 		t.Fatalf("got %T; want *MacroCall", f.DeclList[0])
 	}
-	if mc.Name.Value != "mymacro" {
-		t.Fatalf("macro call name = %q; want %q", mc.Name.Value, "mymacro")
+	name, ok := mc.Name.(*Name)
+	if !ok {
+		t.Fatalf("macro call name = %T; want *Name", mc.Name)
+	}
+	if name.Value != "mymacro" {
+		t.Fatalf("macro call name = %q; want %q", name.Value, "mymacro")
 	}
 	want := []struct {
 		tok token
@@ -113,6 +117,29 @@ func TestMacroCallDecl(t *testing.T) {
 		if mc.Args[i].Tok != w.tok || (w.lit != "" && mc.Args[i].Lit != w.lit) {
 			t.Fatalf("arg %d = %v %q; want %v %q", i, mc.Args[i].Tok, mc.Args[i].Lit, w.tok, w.lit)
 		}
+	}
+}
+
+func TestMacroCallQualified(t *testing.T) {
+	const src = "package p\n#m.mymacro()\n"
+	f, errs := parseMacro(t, src)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	mc, ok := f.DeclList[0].(*MacroCall)
+	if !ok {
+		t.Fatalf("got %T; want *MacroCall", f.DeclList[0])
+	}
+	sel, ok := mc.Name.(*SelectorExpr)
+	if !ok {
+		t.Fatalf("macro call name = %T; want *SelectorExpr", mc.Name)
+	}
+	pkg, ok := sel.X.(*Name)
+	if !ok {
+		t.Fatalf("macro package = %T; want *Name", sel.X)
+	}
+	if pkg.Value != "m" || sel.Sel.Value != "mymacro" {
+		t.Fatalf("qualified name = %s.%s; want m.mymacro", pkg.Value, sel.Sel.Value)
 	}
 }
 
