@@ -23,6 +23,14 @@ type Pkg struct {
 	Pathsym *obj.LSym
 
 	Direct bool // imported directly
+
+	Macros []Macro // macro declarations exported by the package
+}
+
+// Macro is a macro declaration found in a package's export data.
+type Macro struct {
+	Name     string
+	Exported bool
 }
 
 // NewPkg returns a new Pkg for the given package path and name.

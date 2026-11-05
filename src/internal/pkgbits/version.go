@@ -41,6 +41,11 @@ const (
 	// of nongeneric and generic methods (go.dev/issue/81188).
 	V5
 
+	// V6: records macro declarations in the public root.
+	// - a MacroPkg bool
+	// - when true, a list of macro names and exported flags
+	V6
+
 	numVersions = iota
 )
 
@@ -84,6 +89,10 @@ const (
 	// nongeneric and generic methods.
 	PreserveMethodOrder
 
+	// MacroDecls is a bool saying whether the package is a macro package,
+	// followed by a list of (name, exported) macro declarations.
+	MacroDecls
+
 	numFields = iota
 )
 
@@ -94,6 +103,7 @@ var introduced = [numFields]Version{
 	CompactCompLiterals: V3,
 	GenericMethods:      V4,
 	PreserveMethodOrder: V5,
+	MacroDecls:          V6,
 }
 
 // removed is the version a field was removed in or 0 for fields

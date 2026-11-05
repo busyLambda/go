@@ -43,6 +43,15 @@ func ReadPackage(ctxt *types2.Context, imports map[string]*types2.Package, input
 	r := pr.newReader(pkgbits.SectionMeta, pkgbits.PublicRootIdx, pkgbits.SyncPublic)
 	pkg := r.pkg()
 
+	if r.Version().Has(pkgbits.MacroDecls) {
+		if r.Bool() {
+			for i, n := 0, r.Len(); i < n; i++ {
+				_ = r.String()
+				_ = r.Bool()
+			}
+		}
+	}
+
 	if r.Version().Has(pkgbits.HasInit) {
 		r.Bool()
 	}

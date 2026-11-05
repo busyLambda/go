@@ -18,6 +18,7 @@ import (
 	"cmd/compile/internal/inline"
 	"cmd/compile/internal/ir"
 	"cmd/compile/internal/pgoir"
+	"cmd/compile/internal/syntax"
 	"cmd/compile/internal/typecheck"
 	"cmd/compile/internal/types"
 	"cmd/compile/internal/types2"
@@ -25,8 +26,8 @@ import (
 )
 
 // uirVersion is the unified IR version to use for encoding/decoding.
-// Use V5 for generic method index ordering.
-const uirVersion = pkgbits.V5
+// Use V6 for macro declaration metadata.
+const uirVersion = pkgbits.V6
 
 // localPkgReader holds the package reader used for reading the local
 // package. It exists so the unified IR linker can refer back to it
@@ -189,13 +190,13 @@ func lookupMethod(pkg *types.Pkg, symName string) (*ir.Func, error) {
 // the unified IR has the full typed AST needed for introspection during step (1).
 // In other words, we have all the necessary information to build the generic IR form
 // (see writer.captureVars for an example).
-func unified(m posMap, noders []*noder) {
+func unified(m posMap, noders []*noder, macroPkg bool) {
 	inline.InlineCall = unifiedInlineCall
 	typecheck.HaveInlineBody = unifiedHaveInlineBody
 	pgoir.LookupFunc = LookupFunc
 	pgoir.PostLookupCleanup = PostLookupCleanup
 
-	data := writePkgStub(m, noders)
+	data := writePkgStub(m, noders, macroPkg)
 
 	target := typecheck.Target
 
@@ -318,7 +319,7 @@ func readBodies(target *ir.Package, duringInlining bool, profile *pgoir.Profile)
 // writePkgStub type checks the given parsed source files,
 // writes an export data package stub representing them,
 // and returns the result.
-func writePkgStub(m posMap, noders []*noder) string {
+func writePkgStub(m posMap, noders []*noder, macroPkg bool) string {
 	pkg, info, otherInfo := checkFiles(m, noders)
 
 	pw := newPkgWriter(m, pkg, info, otherInfo)
@@ -334,6 +335,18 @@ func writePkgStub(m posMap, noders []*noder) string {
 	{
 		w := publicRootWriter
 		w.pkg(pkg)
+
+		if w.Version().Has(pkgbits.MacroDecls) {
+			w.Bool(macroPkg)
+			if macroPkg {
+				macros := collectMacros(noders)
+				w.Len(len(macros))
+				for _, m := range macros {
+					w.String(m.Name)
+					w.Bool(m.Exported)
+				}
+			}
+		}
 
 		if w.Version().Has(pkgbits.HasInit) {
 			w.Bool(false)
@@ -364,6 +377,22 @@ func writePkgStub(m posMap, noders []*noder) string {
 	freePackage(pkg)
 
 	return sb.String()
+}
+
+// collectMacros returns the macro declarations in the package's files.
+func collectMacros(noders []*noder) []types.Macro {
+	var macros []types.Macro
+	for _, p := range noders {
+		for _, d := range p.file.DeclList {
+			if fn, ok := d.(*syntax.FuncDecl); ok && fn.Macro {
+				macros = append(macros, types.Macro{
+					Name:     fn.Name.Value,
+					Exported: types.IsExported(fn.Name.Value),
+				})
+			}
+		}
+	}
+	return macros
 }
 
 // freePackage ensures the given package is garbage collected.
@@ -418,11 +447,23 @@ func readPackage(pr *pkgReader, importpkg *types.Pkg, localStub bool) {
 			base.ErrorExit()
 		}
 
+		if r.Version().Has(pkgbits.MacroDecls) {
+			importpkg.Macros = nil
+			if r.Bool() {
+				for i, n := 0, r.Len(); i < n; i++ {
+					name := r.String()
+					exported := r.Bool()
+					importpkg.Macros = append(importpkg.Macros, types.Macro{Name: name, Exported: exported})
+				}
+			}
+		}
+
 		if r.Version().Has(pkgbits.HasInit) {
 			r.Bool()
 		}
 
-		for i, n := 0, r.Len(); i < n; i++ {
+		n := r.Len()
+		for i := 0; i < n; i++ {
 			r.Sync(pkgbits.SyncObject)
 			if r.Version().Has(pkgbits.DerivedFuncInstance) {
 				assert(!r.Bool())
@@ -481,6 +522,8 @@ func writeUnifiedExport(out io.Writer) {
 	assert(privateRootWriter.Idx == pkgbits.PrivateRootIdx)
 
 	var selfPkgIdx index
+	var macroPkg bool
+	var macros []types.Macro
 
 	{
 		pr := localPkgReader
@@ -494,6 +537,15 @@ func writeUnifiedExport(out io.Writer) {
 		// instead of passing uirVersion, but NewPkgEncoder is created before r.
 		// If that is correct, we should make that happen.
 		assert(r.Version() == uirVersion)
+
+		if r.Version().Has(pkgbits.MacroDecls) {
+			macroPkg = r.Bool()
+			if macroPkg {
+				for i, n := 0, r.Len(); i < n; i++ {
+					macros = append(macros, types.Macro{Name: r.String(), Exported: r.Bool()})
+				}
+			}
+		}
 
 		if r.Version().Has(pkgbits.HasInit) {
 			r.Bool()
@@ -530,6 +582,17 @@ func writeUnifiedExport(out io.Writer) {
 
 		w.Sync(pkgbits.SyncPkg)
 		w.Reloc(pkgbits.SectionPkg, selfPkgIdx)
+
+		if w.Version().Has(pkgbits.MacroDecls) {
+			w.Bool(macroPkg)
+			if macroPkg {
+				w.Len(len(macros))
+				for _, m := range macros {
+					w.String(m.Name)
+					w.Bool(m.Exported)
+				}
+			}
+		}
 
 		if w.Version().Has(pkgbits.HasInit) {
 			w.Bool(false)

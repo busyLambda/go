@@ -111,6 +111,7 @@ type CmdFlags struct {
 	LinkObj            string       "help:\"write linker-specific object to `file`\""
 	LinkShared         *bool        "help:\"generate code that will be linked against Go shared libraries\"" // &Ctxt.Flag_linkshared, set below
 	Live               CountFlag    "help:\"debug liveness analysis\""
+	MacroCmd           string       "help:\"macro runner executable\""
 	MSan               bool         "help:\"build code compatible with C/C++ memory sanitizer\""
 	MemProfile         string       "help:\"write memory profile to `file`\""
 	MemProfileRate     int          "help:\"set runtime.MemProfileRate to `rate`\""

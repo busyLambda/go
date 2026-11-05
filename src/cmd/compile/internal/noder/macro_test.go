@@ -20,6 +20,24 @@ func parseMacroTestFile(t *testing.T, name, src string) *noder {
 	return &noder{file: f}
 }
 
+func TestCollectMacros(t *testing.T) {
+	p := parseMacroTestFile(t, "macros.go", `package p
+
+#defmacro Exported(stream []Token) []Node { return nil }
+#defmacro hidden(stream []Token) []Node { return nil }
+`)
+	macros := collectMacros([]*noder{p})
+	if len(macros) != 2 {
+		t.Fatalf("got %d macros; want 2", len(macros))
+	}
+	if macros[0].Name != "Exported" || !macros[0].Exported {
+		t.Errorf("macros[0] = %+v; want exported Exported", macros[0])
+	}
+	if macros[1].Name != "hidden" || macros[1].Exported {
+		t.Errorf("macros[1] = %+v; want unexported hidden", macros[1])
+	}
+}
+
 func TestClassifyMacroPackage(t *testing.T) {
 	marked := func(name string) *noder {
 		p := parseMacroTestFile(t, name, "package p\n")

@@ -15,8 +15,8 @@ const (
 	_EOF       // EOF
 
 	// names and literals
-	_Name       // name
-	_Literal    // literal
+	_Name    // name
+	_Literal // literal
 	// _Macrospace is the '#' that introduces a macro definition or call.
 	_Macrospace // #
 
@@ -84,6 +84,17 @@ const (
 	// for CallStmt
 	Go    = _Go
 	Defer = _Defer
+)
+
+// Token aliases used by compiler packages that classify raw macro tokens.
+const (
+	TokenName     = _Name
+	TokenLiteral  = _Literal
+	TokenOperator = _Operator
+	TokenAssignOp = _AssignOp
+	TokenIncOp    = _IncOp
+	TokenStar     = _Star
+	TokenVar      = _Var
 )
 
 // Make sure we have at most 64 tokens so we can use them in a set.

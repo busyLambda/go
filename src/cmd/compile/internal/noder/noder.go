@@ -73,9 +73,11 @@ func LoadPackage(filenames []string) {
 	}
 	base.Timer.AddEvent(int64(lines), "lines")
 
-	checkMacroPackage(m, noders)
+	macroPkg := checkMacroPackage(m, noders)
+	expandMacros(m, noders)
+	base.ExitIfErrors()
 
-	unified(m, noders)
+	unified(m, noders, macroPkg)
 }
 
 // macroPkgInfo is the result of classifying the files of one package.
